@@ -375,8 +375,21 @@ if (process.argv.includes("auth") && process.argv.includes("status")) {
   process.exit(0);
 }
 if (process.argv.includes("--system-prompt-file")) {
-  for (const name of ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING"]) {
-    if (process.env[name] !== "1") throw new Error(\`worker privacy flag missing: \${name}\`);
+  for (const name of ["DISABLE_AUTOUPDATER", "DISABLE_FEEDBACK_COMMAND", "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL", "DISABLE_ERROR_REPORTING"]) {
+    if (process.env[name] !== "1") throw new Error(\`worker safety flag missing: \${name}\`);
+  }
+  const telemetryMode = process.env.EXPECTED_TELEMETRY_MODE || "disabled";
+  if (telemetryMode === "enabled") {
+    for (const name of ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY"]) {
+      if (name in process.env) throw new Error(\`worker telemetry flag unexpectedly set: \${name}\`);
+    }
+  } else if (telemetryMode === "inherited") {
+    if (process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC !== "organization-policy") throw new Error("nonessential traffic policy changed");
+    if (process.env.DISABLE_TELEMETRY !== "0") throw new Error("inherited telemetry setting changed");
+  } else {
+    for (const name of ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY"]) {
+      if (process.env[name] !== "1") throw new Error(\`worker privacy flag missing: \${name}\`);
+    }
   }
 }
 if (process.cwd() !== process.env.EXPECTED_CWD) throw new Error(\`wrong cwd: \${process.cwd()}\`);
@@ -521,6 +534,38 @@ for await (const line of input) {
     assert.equal(result.usage.input_tokens, 3);
     assert.equal(result.relay.upstreamRequests, 0);
     assert.equal(events.at(-1), "message_stop");
+
+    for (const env of [
+      {
+        PI_CLAUDE_CODE_TELEMETRY: "1",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: undefined,
+        DISABLE_TELEMETRY: undefined,
+        EXPECTED_TELEMETRY_MODE: "enabled",
+      },
+      {
+        PI_CLAUDE_CODE_TELEMETRY: "1",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "organization-policy",
+        DISABLE_TELEMETRY: "0",
+        EXPECTED_TELEMETRY_MODE: "inherited",
+      },
+    ]) {
+      const telemetryResult = await runClaudeRequest({
+        model: "sonnet",
+        cwd: workingRoot,
+        frames: [userFrame("telemetry")],
+        systemPrompt: "system",
+        manifest: [],
+        extraBody: { tools: [] },
+        env: {
+          PI_CLAUDE_CODE_COMMAND: executable,
+          EXPECTED_CWD: workingRoot,
+          EXPECTED_SYSTEM_PROMPT: "system",
+          ...env,
+        },
+        timeoutMs: 5_000,
+      });
+      assert.equal(telemetryResult.message.id, "m_fake");
+    }
 
     const processLog = join(root, "processes.log");
     const common = {

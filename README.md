@@ -71,6 +71,9 @@ These environment variables are optional:
 - `PI_CLAUDE_CODE_POWERSHELL`: PowerShell executable used to run a `.ps1`
   `PI_CLAUDE_CODE_COMMAND` (default: `pwsh` when installed, otherwise
   `powershell.exe`).
+- `PI_CLAUDE_CODE_TELEMETRY`: set to `1` to allow Claude Code's native
+  Anthropic usage telemetry for conversation requests. Inherited privacy
+  restrictions still take precedence.
 
 ### Windows
 
@@ -105,8 +108,13 @@ Code treats any non-empty `DISABLE_TELEMETRY` or
 `false`; unset them to allow normal discovery again. See
 [Claude Code's environment variables](https://code.claude.com/docs/en/env-vars#features-that-need-feature-flag-fetching).
 
-Conversation workers still disable telemetry and nonessential traffic regardless
-of the discovery settings.
+Conversation workers disable telemetry and nonessential traffic by default. To
+allow Claude Code's native Anthropic usage telemetry for conversation requests,
+set `PI_CLAUDE_CODE_TELEMETRY=1` before starting Pi. The opt-in does not remove
+inherited `DISABLE_TELEMETRY`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, or
+other privacy-policy settings, so user and organization policy takes precedence.
+Automatic updates, official marketplace auto-install, feedback uploads, and
+error reporting remain disabled when telemetry is opted in.
 
 ## Usage and billing
 

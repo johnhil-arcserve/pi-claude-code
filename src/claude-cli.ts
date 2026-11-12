@@ -599,9 +599,11 @@ function processEnvironment(
     DISABLE_ERROR_REPORTING: "1",
   });
   // These flags also disable the feature flags that unlock Claude Code's served
-  // model catalog. Discovery inherits the user's choices instead of forcing them;
-  // conversation workers remain isolated from nonessential traffic.
-  if (purpose === "request") {
+  // model catalog. Discovery inherits the user's choices instead of forcing them.
+  // Requests remain private by default, but an explicit opt-in may leave native
+  // Anthropic telemetry enabled. Inherited disable flags are never removed, so
+  // user and organization policy still takes precedence over the opt-in.
+  if (purpose === "request" && !envFlagEnabled(env.PI_CLAUDE_CODE_TELEMETRY)) {
     env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
     env.DISABLE_TELEMETRY = "1";
   }
