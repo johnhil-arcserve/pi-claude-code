@@ -69,6 +69,54 @@ test("prepares replay frames and groups tool results", () => {
   assert.equal(frames[2]?.shouldQuery, undefined);
 });
 
+test("synthesizes an error tool_result for a tool_use the next message never answered", () => {
+  const assistant: AssistantMessage = {
+    role: "assistant",
+    api: "test",
+    provider: "claude-code",
+    model: "sonnet",
+    content: [
+      { type: "text", text: "calling" },
+      { type: "toolCall", id: "t1", name: "read", arguments: { path: "a" } },
+    ],
+    usage,
+    stopReason: "toolUse",
+    timestamp: 1,
+  };
+  // Turn died after the tool_use streamed; the user resumed with a new prompt
+  // instead of a tool result, leaving the pairing broken.
+  const frames = prepareFrames([
+    { role: "user", content: "start", timestamp: 0 },
+    assistant,
+    { role: "user", content: "carry on", timestamp: 2 },
+  ]);
+
+  assert.equal(frames.length, 3);
+  assert.equal(frames[2]?.type, "user");
+  const repaired = frames[2]?.message.content[0] as { type: string; tool_use_id: string; is_error: boolean };
+  assert.equal(repaired.type, "tool_result");
+  assert.equal(repaired.tool_use_id, "t1");
+  assert.equal(repaired.is_error, true);
+  assert.deepEqual(frames[2]?.message.content[1], { type: "text", text: "carry on" });
+});
+
+test("appends a tool_result frame when a dangling tool_use ends the history", () => {
+  const assistant: AssistantMessage = {
+    role: "assistant",
+    api: "test",
+    provider: "claude-code",
+    model: "sonnet",
+    content: [{ type: "toolCall", id: "t9", name: "read", arguments: {} }],
+    usage,
+    stopReason: "toolUse",
+    timestamp: 1,
+  };
+  const frames = prepareFrames([{ role: "user", content: "go", timestamp: 0 }, assistant]);
+
+  assert.equal(frames.at(-1)?.type, "user");
+  assert.equal((frames.at(-1)?.message.content[0] as { tool_use_id: string }).tool_use_id, "t9");
+});
+
 test("replays native signed blocks only while the visible projection is unchanged", () => {
   const assistant: AssistantMessage = {
     role: "assistant",

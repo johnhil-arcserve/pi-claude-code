@@ -204,6 +204,47 @@ function assistantContent(message: AssistantMessage): NativeContentBlock[] {
   return canonicalAssistantContent(message);
 }
 
+// Anthropic rejects any assistant `tool_use` whose next message lacks a
+// matching `tool_result`. A turn that dies after the tool request is streamed
+// but before Pi records a result (billing guard, interrupt, crash) leaves that
+// pairing broken forever. Synthesize an error result for each unanswered id so
+// aborted turns self-heal instead of poisoning the whole conversation.
+function repairDanglingToolUse(frames: NativeFrame[]): void {
+  for (let index = 0; index < frames.length; index++) {
+    const frame = frames[index]!;
+    if (frame.type !== "assistant") continue;
+
+    const toolUseIds = (frame.message.content as NativeContentBlock[])
+      .filter((block): block is Extract<NativeContentBlock, { type: "tool_use" }> => block.type === "tool_use")
+      .map((block) => block.id);
+    if (toolUseIds.length === 0) continue;
+
+    const next = frames[index + 1];
+    const answered = new Set<string>();
+    if (next?.type === "user") {
+      for (const block of next.message.content as Array<Record<string, unknown>>) {
+        if (block?.type === "tool_result" && typeof block.tool_use_id === "string") answered.add(block.tool_use_id);
+      }
+    }
+
+    const missing = toolUseIds.filter((id) => !answered.has(id));
+    if (missing.length === 0) continue;
+
+    // tool_result blocks must lead the user turn, so prepend the synthetic ones.
+    const synthetic = missing.map((id) => ({
+      type: "tool_result",
+      tool_use_id: id,
+      content: "Tool call was not completed: the turn ended before a result was produced.",
+      is_error: true,
+    }));
+    if (next?.type === "user") {
+      next.message.content.unshift(...synthetic);
+    } else {
+      frames.splice(index + 1, 0, { type: "user", message: { role: "user", content: synthetic } });
+    }
+  }
+}
+
 export function prepareFrames(messages: Message[]): NativeFrame[] {
   const frames: NativeFrame[] = [];
 
@@ -239,6 +280,8 @@ export function prepareFrames(messages: Message[]): NativeFrame[] {
       frames.push({ type: role, message: { role, content: blocks } });
     }
   }
+
+  repairDanglingToolUse(frames);
 
   const final = frames.at(-1);
   if (!final || final.type !== "user" || final.message.content.length === 0) {
