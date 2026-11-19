@@ -9,6 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { registerSessionResourceCleanup } from "@earendil-works/pi-ai";
 import { TurnRelay } from "./turn-relay.ts";
 import { usageCreditsAllowed, usageCreditsChargeError, type RateLimitInfo } from "./billing.ts";
+import { recordRateLimit } from "./usage-status.ts";
 import { envFlagEnabled } from "./env.ts";
 import type { DiscoveredClaudeModel } from "./model-catalog.ts";
 import type {
@@ -1176,7 +1177,10 @@ class ClaudeProcess {
           result = event;
           break;
         } else if (event.type === "rate_limit_event") {
-          if (event.rate_limit_info && typeof event.rate_limit_info === "object") rateLimit = event.rate_limit_info;
+          if (event.rate_limit_info && typeof event.rate_limit_info === "object") {
+            rateLimit = event.rate_limit_info;
+            recordRateLimit(rateLimit);
+          }
         } else if (event.type === "stream_event" && !this.relay.used) {
           deliver(event.event);
         }
